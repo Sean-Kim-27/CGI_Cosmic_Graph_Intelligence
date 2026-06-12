@@ -15,6 +15,7 @@ from app.models.compare_schemas import (
     CompareRequest,
     CompareResponse,
 )
+from app.core.exceptions import CGIException
 from app.utils.logger import get_logger
 
 log = get_logger("api.compare")
@@ -39,9 +40,12 @@ async def compare(request: CompareRequest) -> CompareResponse:
         )
         return result
 
+    except CGIException as e:
+        log.error("비교 테스트 커스텀 에러: %s (status: %d)", e.message, e.status_code)
+        raise HTTPException(status_code=e.status_code, detail=f"비교 테스트 중 오류 발생: {e.message}")
     except Exception as e:
         log.error("비교 테스트 실패: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"비교 테스트 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
 
 
 @router.post("/report", response_class=PlainTextResponse)
@@ -58,9 +62,12 @@ async def compare_report(request: CompareRequest) -> str:
         )
         return result.report_markdown
 
+    except CGIException as e:
+        log.error("리포트 생성 커스텀 에러: %s (status: %d)", e.message, e.status_code)
+        raise HTTPException(status_code=e.status_code, detail=f"리포트 생성 중 오류 발생: {e.message}")
     except Exception as e:
         log.error("리포트 생성 실패: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"리포트 생성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
 
 
 @router.post("/batch", response_model=list[CompareResponse])

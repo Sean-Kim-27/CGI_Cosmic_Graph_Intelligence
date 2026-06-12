@@ -13,7 +13,9 @@ from typing import Any
 
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 
+from app.core.exceptions import LLMTimeoutError, LLMTokenLimitError, JSONParsingError, CGIException
 from app.models.config import get_settings
 from app.utils.logger import get_logger
 
@@ -65,11 +67,26 @@ async def generate_completion(
         config.system_instruction = system_prompt
 
     t0 = time.perf_counter()
-    response = await client.aio.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=config,
-    )
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+    except APIError as e:
+        log.error("LLM API 에러: %s", e)
+        # HTTP status code에 따른 처리 (Gemini APIError는 code 속성을 가짐)
+        status = getattr(e, 'code', 500)
+        if status in (429, 403): # Rate limit, Quota exceeded
+            raise LLMTokenLimitError(f"API 할당량을 초과했습니다: {e.message}")
+        elif status in (504, 503):
+            raise LLMTimeoutError(f"API 서버 타임아웃/오류: {e.message}")
+        else:
+            raise CGIException(f"LLM 호출 실패: {e.message}", status_code=status)
+    except Exception as e:
+        log.error("예상치 못한 LLM 호출 에러: %s", e)
+        raise CGIException(f"LLM 시스템 에러: {str(e)}")
+
     latency_ms = (time.perf_counter() - t0) * 1000
 
     content = response.text or ""
@@ -106,13 +123,22 @@ async def generate_embeddings(
     client = _get_client()
 
     embeddings: list[list[float]] = []
-    # Gemini embed_content는 개별 호출
-    for text in texts:
-        response = await client.aio.models.embed_content(
-            model=model,
-            contents=text,
-        )
-        embeddings.append(list(response.embeddings[0].values))
+    try:
+        # Gemini embed_content는 개별 호출
+        for text in texts:
+            response = await client.aio.models.embed_content(
+                model=model,
+                contents=text,
+            )
+            embeddings.append(list(response.embeddings[0].values))
+    except APIError as e:
+        log.error("임베딩 생성 에러: %s", e)
+        status = getattr(e, 'code', 500)
+        if status == 429:
+            raise LLMTokenLimitError(f"임베딩 API 할당량을 초과했습니다: {e.message}")
+        raise CGIException(f"임베딩 실패: {e.message}", status_code=status)
+    except Exception as e:
+        raise CGIException(f"임베딩 시스템 에러: {str(e)}")
 
     log.info("임베딩 완료  texts=%d  model=%s", len(texts), model)
     return embeddings
@@ -145,11 +171,20 @@ async def generate_json(
     if system_prompt:
         config.system_instruction = system_prompt
 
-    response = await client.aio.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=config,
-    )
+    try:
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config,
+        )
+    except APIError as e:
+        log.error("LLM JSON 생성 API 에러: %s", e)
+        status = getattr(e, 'code', 500)
+        if status == 429:
+            raise LLMTokenLimitError(f"JSON 생성 API 할당량을 초과했습니다: {e.message}")
+        raise CGIException(f"JSON 생성 실패: {e.message}", status_code=status)
+    except Exception as e:
+        raise CGIException(f"JSON 생성 시스템 에러: {str(e)}")
 
     content: str = response.text or "{}"
 
@@ -160,6 +195,11 @@ async def generate_json(
             lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
         )
 
-    parsed = json.loads(content)
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as e:
+        log.error("JSON 파싱 에러: %s", e)
+        raise JSONParsingError(f"JSON 디코딩에 실패했습니다. (내용: {content[:100]}...)")
+    
     log.info("JSON 파싱 완료  model=%s", model)
     return parsed

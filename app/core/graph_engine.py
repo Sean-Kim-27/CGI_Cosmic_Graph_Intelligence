@@ -7,6 +7,7 @@ NetworkX를 기반으로 attraction/repulsion을 계산하여 edge weight를 결
 
 from __future__ import annotations
 
+import asyncio
 import networkx as nx
 
 from app.core.attraction import calculate_attraction
@@ -18,9 +19,9 @@ from app.utils.logger import get_logger
 log = get_logger("graph_engine")
 
 
-def build_graph(nodes: list[CosmicNode]) -> tuple[nx.Graph, list[CosmicEdge]]:
+def _build_graph_sync(nodes: list[CosmicNode]) -> tuple[nx.Graph, list[CosmicEdge]]:
     """
-    노드 목록으로부터 가중 그래프를 생성한다.
+    노드 목록으로부터 가중 그래프를 생성하는 동기 함수 (스레드 풀에서 실행).
 
     모든 노드 쌍에 대해 attraction - repulsion을 계산하고,
     threshold 이상인 엣지만 유지한다.
@@ -67,3 +68,11 @@ def build_graph(nodes: list[CosmicNode]) -> tuple[nx.Graph, list[CosmicEdge]]:
 
     log.info("그래프 생성 완료: 노드=%d, 엣지=%d", G.number_of_nodes(), G.number_of_edges())
     return G, edges
+
+
+async def build_graph(nodes: list[CosmicNode]) -> tuple[nx.Graph, list[CosmicEdge]]:
+    """
+    NetworkX 연산이 FastAPI 이벤트 루프를 블로킹하지 않도록 
+    백그라운드 스레드에서 그래프를 생성한다.
+    """
+    return await asyncio.to_thread(_build_graph_sync, nodes)

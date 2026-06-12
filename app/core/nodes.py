@@ -12,6 +12,7 @@ from typing import Any
 from app.models.schemas import CosmicNode, InputAnalysis
 from app.utils.llm_client import generate_json, generate_embeddings
 from app.utils.logger import get_logger
+from app.utils.security import sanitize_input
 
 log = get_logger("nodes")
 
@@ -21,17 +22,19 @@ log = get_logger("nodes")
 # ──────────────────────────────────────────────
 async def analyze_input(user_input: str) -> InputAnalysis:
     """사용자 입력에서 의도, 키워드, 도메인을 추출한다."""
+    safe_input = sanitize_input(user_input)
 
     prompt = f"""다음 사용자 입력을 분석하여 JSON으로 출력해라.
 
-사용자 입력: "{user_input}"
+사용자 입력: "{safe_input}"
 
 출력 형식:
 {{
   "intent": "idea_generation | system_design | problem_solving | analysis | general",
   "keywords": ["핵심 키워드 5~10개"],
   "domain": ["관련 도메인 2~4개"],
-  "output_type": "idea_list | design_document | solution | analysis_report | text"
+  "output_type": "idea_list | design_document | solution | analysis_report | text",
+  "suggested_node_count": <질문의 복잡도에 따라 최적의 개념 노드 개수를 10~30 사이의 정수로 제안>
 }}"""
 
     data: dict[str, Any] = await generate_json(
@@ -44,7 +47,8 @@ async def analyze_input(user_input: str) -> InputAnalysis:
         keywords=data.get("keywords", []),
         domain=data.get("domain", []),
         output_type=data.get("output_type", "text"),
-        original_input=user_input,
+        suggested_node_count=data.get("suggested_node_count", 20),
+        original_input=safe_input,
     )
 
 
@@ -53,10 +57,9 @@ async def analyze_input(user_input: str) -> InputAnalysis:
 # ──────────────────────────────────────────────
 async def generate_concept_nodes(
     analysis: InputAnalysis,
-    *,
-    max_nodes: int = 20,
 ) -> list[CosmicNode]:
-    """입력 분석 결과를 기반으로 관련 개념 노드를 생성한다."""
+    """입력 분석 결과를 기반으로 관련 개념 노드를 동적 개수로 생성한다."""
+    max_nodes = analysis.suggested_node_count
 
     prompt = f"""다음 주제에 대해 관련된 개념 노드를 {max_nodes}개 생성해라.
 

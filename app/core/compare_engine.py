@@ -89,9 +89,7 @@ async def run_comparison(question: str, mode: str = "balanced") -> CompareRespon
 
     # 2.2 개념 노드 생성
     log.info("  2.2 개념 노드 생성")
-    nodes = await generate_concept_nodes(
-        analysis, max_nodes=settings.max_initial_nodes
-    )
+    nodes = await generate_concept_nodes(analysis)
 
     # 2.3 쿼리 임베딩 (프루닝에 사용)
     log.info("  2.3 쿼리 임베딩")
@@ -100,7 +98,7 @@ async def run_comparison(question: str, mode: str = "balanced") -> CompareRespon
 
     # 2.4 그래프 생성
     log.info("  2.4 그래프 생성")
-    G, edges = build_graph(nodes)
+    G, edges = await build_graph(nodes)
 
     # 2.5 쌍성계 탐지
     log.info("  2.5 쌍성계 탐지")

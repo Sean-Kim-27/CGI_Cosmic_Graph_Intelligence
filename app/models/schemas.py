@@ -99,4 +99,5 @@ class InputAnalysis(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     domain: list[str] = Field(default_factory=list)
     output_type: str = "text"
+    suggested_node_count: int = 20
     original_input: str = ""

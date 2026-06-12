@@ -25,14 +25,11 @@ MODE_PARAMS: dict[str, dict[str, float]] = {
     "research":  {"lambda": 0.40, "mu": 0.60, "eta": 0.35},
 }
 
-# 임계값
-T_ACTIVE = 0.65
-T_CREATIVE = 0.40
-T_NOISE = 0.45
-T_SURVIVAL = 0.35
-T_GARBAGE_U = 0.25
-T_GARBAGE_C = 0.20
-T_GARBAGE_N = 0.60
+from app.models.config import get_settings
+
+# ──────────────────────────────────────────────
+# 모드별 파라미터 (이 부분은 유지하거나 나중에 분리 가능)
+# ──────────────────────────────────────────────
 
 
 # ──────────────────────────────────────────────
@@ -142,17 +139,19 @@ def classify_nodes(
 
         S = lam * U + (1 - lam) * C - mu * N + eta * M
 
+        settings = get_settings()
+        
         # 상태 판정
-        if U >= T_ACTIVE:
+        if U >= settings.t_active:
             state = "active"
             reason = f"즉시 유용성 높음 (U={U:.2f})"
-        elif C >= T_CREATIVE and N <= T_NOISE:
+        elif C >= settings.t_creative and N <= settings.t_noise:
             state = "dormant_wormhole_candidate"
             reason = f"창의적 잠재력 높음 (C={C:.2f}), 노이즈 낮음 (N={N:.2f})"
-        elif S >= T_SURVIVAL:
+        elif S >= settings.t_survival:
             state = "orbiting"
             reason = f"생존 점수 충분 (S={S:.2f})"
-        elif U < T_GARBAGE_U and C < T_GARBAGE_C and N > T_GARBAGE_N:
+        elif U < settings.t_garbage_u and C < settings.t_garbage_c and N > settings.t_garbage_n:
             state = "garbage"
             reason = f"유용성·창의성 부족, 노이즈 높음"
         else:

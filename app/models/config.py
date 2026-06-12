@@ -10,16 +10,32 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """CGI 시스템 전역 설정."""
 
-    # Gemini API
-    gemini_api_key: str = ""
-    llm_model: str = "gemma-4-31b-it"
+    openai_api_key: str | None = None
+    gemini_api_key: str | None = None
+    llm_model: str = "gpt-4o"
     embedding_model: str = "gemini-embedding-2"
 
     # 비교 테스트
-    judge_llm_model: str = "gemma-4-31b-it"
+    judge_llm_model: str = "gpt-4o"
 
     # CGI 파이프라인
     cgi_mode: str = "balanced"  # accurate | balanced | creative | research
+
+
+
+    # Pruner Settings
+    t_active: float = 0.65
+    t_creative: float = 0.40
+    t_noise: float = 0.45
+    t_survival: float = 0.35
+    t_garbage_u: float = 0.25
+    t_garbage_c: float = 0.20
+    t_garbage_n: float = 0.60
+    
+    # Wormhole Settings
+    t_wormhole_min: float = 0.40
+    t_wormhole_max: float = 0.60
+    t_wormhole_repulsion: float = 0.30
 
     # 파이프라인 파라미터
     max_initial_nodes: int = 20
