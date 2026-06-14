@@ -55,18 +55,29 @@ CGI 시스템의 효용성을 증명하기 위해, **동일한 질문에 대해 
 
 ### 1. 환경 설정
 프로젝트 루트 폴더에 `.env` 파일을 생성하고 다음 변수를 입력합니다.
-(현재 `google-genai` SDK를 사용하도록 세팅되어 있습니다.)
+Gemini API key 없이 서버 user의 Codex auth를 재사용하려면 `LLM_PROVIDER=codex`를 사용합니다.
 
 ```env
-# LLM API 키 세팅 (현재 Gemini 사용 중)
-GEMINI_API_KEY=your_gemini_api_key_here
+# Codex auth 기반 실행
+LLM_PROVIDER=codex
+LLM_MODEL=gpt-5.5
+CODEX_WORKDIR=/home/ubuntu/CGI/CGI_Cosmic_Graph_Intelligence
 
-# 모델 세팅 (기본값)
-LLM_MODEL=gemma-4-31b-it
-JUDGE_LLM_MODEL=gemma-4-31b-it
+# Gemini 기반 실행을 선택할 때만 필요
+# LLM_PROVIDER=gemini
+# GEMINI_API_KEY=your_gemini_api_key_here
+# LLM_MODEL=gemma-4-31b-it
+# JUDGE_LLM_MODEL=gemma-4-31b-it
 
 # CGI 모드 (accurate / balanced / creative / research)
 CGI_MODE=balanced
+
+# SQLite 기반 CGI 메모리. 저장은 전체 노드/엣지를 하되, 다음 프롬프트 주입은 recent+similar top-k로 제한해 지연과 토큰 증가를 막습니다.
+CGI_MEMORY_ENABLED=true
+CGI_MEMORY_DB_PATH=/home/ubuntu/CGI/CGI_Cosmic_Graph_Intelligence/data/cgi_memory.sqlite3
+CGI_MEMORY_CONTEXT_LIMIT=18
+CGI_MEMORY_RECENT_LIMIT=6
+CGI_MEMORY_SIMILAR_LIMIT=12
 ```
 
 ### 2. 패키지 설치
@@ -77,13 +88,19 @@ pip install -r requirements.txt
 ### 3. API 서버 실행
 FastAPI를 사용하여 서버를 띄웁니다.
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+LLM_PROVIDER=codex LLM_MODEL=gpt-5.5 CODEX_WORKDIR=/home/ubuntu/CGI/CGI_Cosmic_Graph_Intelligence \
+  uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 브라우저에서 `http://localhost:8000/docs`에 접속하면 Swagger UI를 통해 테스트할 수 있습니다.
 
 ---
 
 ## 🌐 API 엔드포인트
+
+### `POST /api/chat`
+비교/Judge 없이 CGI 파이프라인 기반 최종 답변 텍스트만 반환합니다.
+*   **Request Body**: `{"question": "질문 내용", "mode": "balanced"}`
+*   **Response**: 최종 답변 문자열(`text/plain`)
 
 ### `POST /api/compare`
 단건의 질문에 대해 비교 테스트를 수행합니다.

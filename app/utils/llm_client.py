@@ -7,13 +7,16 @@ Google Gemini API를 캡슐화한 비동기 클라이언트.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import time
 from typing import Any
 
 from google import genai
 from google.genai import types
 from google.genai.errors import APIError
+from openai_codex import AsyncCodex, Sandbox
 
 from app.core.exceptions import LLMTimeoutError, LLMTokenLimitError, JSONParsingError, CGIException
 from app.models.config import get_settings
@@ -22,6 +25,8 @@ from app.utils.logger import get_logger
 log = get_logger("llm_client")
 
 _client: genai.Client | None = None
+_codex_client: AsyncCodex | None = None
+_codex_thread = None
 
 
 def _get_client() -> genai.Client:
@@ -31,6 +36,58 @@ def _get_client() -> genai.Client:
         settings = get_settings()
         _client = genai.Client(api_key=settings.gemini_api_key)
     return _client
+
+
+async def _get_codex_client() -> AsyncCodex:
+    """서버 user의 Codex auth를 재사용하는 Codex SDK 클라이언트."""
+    global _codex_client
+    if _codex_client is None:
+        client = AsyncCodex()
+        _codex_client = await client.__aenter__()
+    return _codex_client
+
+
+async def _run_codex(prompt: str, *, system_prompt: str = "", model: str | None = None) -> dict[str, Any]:
+    settings = get_settings()
+    model = model or settings.llm_model
+    client = await _get_codex_client()
+    thread = await client.thread_start(
+        model=model,
+        sandbox=Sandbox.workspace_write,
+        cwd=os.path.abspath(settings.codex_workdir),
+    )
+    full_prompt = prompt
+    if system_prompt:
+        full_prompt = f"System instructions:\n{system_prompt}\n\nUser request:\n{prompt}"
+
+    t0 = time.perf_counter()
+    result = await thread.run(full_prompt)
+    latency_ms = (time.perf_counter() - t0) * 1000
+    return {
+        "content": getattr(result, "final_response", str(result)).strip(),
+        "model": model,
+        "latency_ms": round(latency_ms, 1),
+        "tokens_used": 0,
+    }
+
+
+def _strip_code_fence(content: str) -> str:
+    content = content.strip()
+    if content.startswith("```"):
+        lines = content.split("\n")
+        if lines[-1].strip() == "```":
+            return "\n".join(lines[1:-1]).strip()
+        return "\n".join(lines[1:]).strip()
+    return content
+
+
+def _local_embedding(text: str, dimensions: int = 64) -> list[float]:
+    digest = hashlib.sha512(text.encode("utf-8")).digest()
+    values = []
+    for i in range(dimensions):
+        byte = digest[i % len(digest)]
+        values.append(round((byte / 127.5) - 1.0, 6))
+    return values
 
 
 # ──────────────────────────────────────────────
@@ -57,6 +114,16 @@ async def generate_completion(
     """
     settings = get_settings()
     model = model or settings.llm_model
+    if settings.llm_provider == "codex":
+        result = await _run_codex(prompt, system_prompt=system_prompt, model=model)
+        log.info(
+            "Codex LLM 완료  model=%s  tokens=%s  latency=%.0fms",
+            model,
+            result["tokens_used"],
+            result["latency_ms"],
+        )
+        return result
+
     client = _get_client()
 
     config = types.GenerateContentConfig(
@@ -120,6 +187,11 @@ async def generate_embeddings(
     """텍스트 목록의 임베딩 벡터를 반환한다."""
     settings = get_settings()
     model = model or settings.embedding_model
+    if settings.llm_provider == "codex":
+        embeddings = [_local_embedding(text) for text in texts]
+        log.info("로컬 임베딩 완료  texts=%d  provider=codex", len(texts))
+        return embeddings
+
     client = _get_client()
 
     embeddings: list[list[float]] = []
@@ -161,6 +233,23 @@ async def generate_json(
     """
     settings = get_settings()
     model = model or settings.llm_model
+    if settings.llm_provider == "codex":
+        result = await _run_codex(
+            prompt,
+            system_prompt=(
+                f"{system_prompt}\n\n" if system_prompt else ""
+            ) + "반드시 JSON 객체만 출력해라. 마크다운 설명은 넣지 마라.",
+            model=model,
+        )
+        content = _strip_code_fence(result["content"])
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as e:
+            log.error("Codex JSON 파싱 에러: %s", e)
+            raise JSONParsingError(f"JSON 디코딩에 실패했습니다. (내용: {content[:100]}...)")
+        log.info("Codex JSON 파싱 완료  model=%s", model)
+        return parsed
+
     client = _get_client()
 
     config = types.GenerateContentConfig(

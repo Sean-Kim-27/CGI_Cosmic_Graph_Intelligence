@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.compare import router as compare_router
+from app.api.compare import chat_router, router as compare_router
 
 app = FastAPI(
     title="Cosmic Graph Intelligence",
@@ -31,6 +31,7 @@ app.add_middleware(
 )
 
 # 라우터 등록
+app.include_router(chat_router)
 app.include_router(compare_router)
 
 
@@ -42,6 +43,7 @@ async def root():
         "version": "0.1.0",
         "status": "running",
         "endpoints": {
+            "chat": "POST /api/chat",
             "compare": "POST /api/compare",
             "report": "POST /api/compare/report",
             "batch": "POST /api/compare/batch",

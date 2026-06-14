@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 
-from app.core.compare_engine import run_comparison
+from app.core.compare_engine import run_chat, run_comparison
 from app.models.compare_schemas import (
     BatchCompareRequest,
     CompareRequest,
@@ -21,6 +21,25 @@ from app.utils.logger import get_logger
 log = get_logger("api.compare")
 
 router = APIRouter(prefix="/api/compare", tags=["compare"])
+chat_router = APIRouter(prefix="/api", tags=["chat"])
+
+
+@chat_router.post("/chat", response_class=PlainTextResponse)
+async def chat(request: CompareRequest) -> str:
+    """
+    비교 검증 없이 CGI 파이프라인 최종 답변만 반환한다.
+    """
+    log.info("chat 요청 수신: question=%s, mode=%s", request.question, request.mode)
+
+    try:
+        result = await run_chat(question=request.question, mode=request.mode)
+        return result.content
+    except CGIException as e:
+        log.error("chat 커스텀 에러: %s (status: %d)", e.message, e.status_code)
+        raise HTTPException(status_code=e.status_code, detail=f"chat 생성 중 오류 발생: {e.message}")
+    except Exception as e:
+        log.error("chat 생성 실패: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"서버 내부 오류: {str(e)}")
 
 
 @router.post("", response_model=CompareResponse)

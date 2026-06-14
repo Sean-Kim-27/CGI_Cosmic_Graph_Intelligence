@@ -59,3 +59,24 @@ def test_compare_endpoint(mock_run_comparison):
     assert data["mode"] == "balanced"
     assert data["direct_response"]["content"] == "직접 응답"
     assert data["cgi_response"]["content"] == "CGI 응답"
+
+
+@patch("app.api.compare.run_chat")
+def test_chat_endpoint_returns_result_only(mock_run_chat):
+    mock_run_chat.return_value = LLMResponse(
+        content="CGI 최종 답변",
+        model="test-model",
+        latency_ms=123.4,
+        tokens_used=56,
+        cgi_context_used="압축 컨텍스트",
+    )
+
+    response = client.post(
+        "/api/chat",
+        json={"question": "테스트 질문", "mode": "balanced"},
+    )
+
+    assert response.status_code == 200
+    assert response.text == "CGI 최종 답변"
+    assert response.headers["content-type"].startswith("text/plain")
+    mock_run_chat.assert_called_once_with(question="테스트 질문", mode="balanced")

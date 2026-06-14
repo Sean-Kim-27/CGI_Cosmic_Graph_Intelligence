@@ -20,6 +20,7 @@ from app.core.blackhole_compressor import compress_context
 from app.core.comparison_analyzer import analyze_comparison
 from app.core.escape_node_pruner import classify_nodes
 from app.core.graph_engine import build_graph
+from app.core.memory_store import CGIMemoryStore
 from app.core.nodes import analyze_input, generate_concept_nodes
 from app.core.wormhole import generate_wormhole_shortcuts
 from app.models.compare_schemas import (
@@ -36,6 +37,28 @@ from app.utils.report_generator import generate_report
 log = get_logger("compare_engine")
 
 KST = timezone(timedelta(hours=9))
+
+
+def _memory_store(settings) -> CGIMemoryStore | None:
+    if not getattr(settings, "cgi_memory_enabled", True):
+        return None
+    return CGIMemoryStore(getattr(settings, "cgi_memory_db_path", "./data/cgi_memory.sqlite3"))
+
+
+def _binary_pairs(binaries) -> list[list[str]]:
+    return [list(binary.nodes) for binary in binaries]
+
+
+def _wormhole_pairs(wormhole_edges, node_map: dict[str, object]) -> list[list[str]]:
+    pairs: list[list[str]] = []
+    for edge in wormhole_edges:
+        src = node_map.get(edge.source)
+        tgt = node_map.get(edge.target)
+        pairs.append([
+            getattr(src, "name", edge.source),
+            getattr(tgt, "name", edge.target),
+        ])
+    return pairs
 
 
 async def run_comparison(question: str, mode: str = "balanced") -> CompareResponse:
@@ -221,4 +244,98 @@ async def run_comparison(question: str, mode: str = "balanced") -> CompareRespon
     log.info("승자: %s", comparison_analysis.winner)
     log.info("=" * 60)
 
+    return response
+
+
+async def run_chat(question: str, mode: str = "balanced") -> LLMResponse:
+    """
+    비교/Judge 단계를 건너뛰고 CGI 파이프라인 기반 최종 답변만 생성한다.
+
+    Args:
+        question: 답변할 사용자 질문
+        mode: CGI 모드 (accurate/balanced/creative/research)
+
+    Returns:
+        LLMResponse: CGI context가 주입된 LLM 최종 답변
+    """
+    settings = get_settings()
+
+    log.info("=" * 60)
+    log.info("CGI chat 시작")
+    log.info("질문: %s", question)
+    log.info("모드: %s", mode)
+    log.info("=" * 60)
+
+    cgi_start = time.perf_counter()
+
+    analysis = await analyze_input(question)
+    nodes = await generate_concept_nodes(analysis)
+    query_embeddings = await generate_embeddings([question])
+    query_embedding = query_embeddings[0]
+    G, edges = await build_graph(nodes)
+    binaries = detect_binary_systems(G, nodes)
+    decisions = classify_nodes(nodes, analysis, query_embedding, mode=mode)
+    wormhole_edges = generate_wormhole_shortcuts(G, nodes)
+    compressed = compress_context(
+        analysis=analysis,
+        nodes=nodes,
+        decisions=decisions,
+        binaries=binaries,
+        wormhole_edges=wormhole_edges,
+    )
+
+    cgi_pipeline_ms = (time.perf_counter() - cgi_start) * 1000
+
+    store = _memory_store(settings)
+    memory_context = ""
+    if store is not None:
+        memory_context = store.format_mixed_node_context(
+            query_embedding=query_embedding,
+            recent_limit=getattr(settings, "cgi_memory_recent_limit", 6),
+            similar_limit=getattr(settings, "cgi_memory_similar_limit", 12),
+            total_limit=getattr(settings, "cgi_memory_context_limit", 18),
+        )
+        if memory_context:
+            memory_context = f"\n\n{memory_context}"
+
+    cgi_system_prompt = f"""너는 Cosmic Graph Intelligence 시스템의 Reasoning Agent다.
+아래의 구조화된 개념 그래프 분석 결과를 기반으로 사용자의 질문에 답변해라.
+
+단순히 일반적인 답변을 하지 말고, 아래 그래프에서 발견된 핵심 조합, 쌍성계, 웜홀 연결을 깊이 있게 활용하여
+서로 다른 관점과 도메인을 포괄하는 다양한 창의적 아이디어(최소 3~5개)를 명확하고 일관성 있게 제시해라.
+
+───────────────────────────
+{compressed}{memory_context}
+───────────────────────────"""
+
+    cgi_result = await generate_completion(
+        question,
+        system_prompt=cgi_system_prompt,
+        model=settings.llm_model,
+    )
+
+    response = LLMResponse(
+        content=cgi_result["content"],
+        model=cgi_result["model"],
+        latency_ms=round(cgi_pipeline_ms + cgi_result["latency_ms"], 1),
+        tokens_used=cgi_result["tokens_used"],
+        cgi_context_used=compressed,
+    )
+    if store is not None:
+        node_map = {node.id: node for node in nodes}
+        run_id = store.save_run(
+            question=question,
+            mode=mode,
+            analysis=analysis,
+            nodes=nodes,
+            edges=edges,
+            decisions=decisions,
+            binary_systems=_binary_pairs(binaries),
+            wormhole_connections=_wormhole_pairs(wormhole_edges, node_map),
+            compressed_context=compressed,
+            response_content=response.content,
+            latency_ms=response.latency_ms,
+        )
+        log.info("CGI memory 저장 완료: run_id=%d", run_id)
+    log.info("CGI chat 완료 (%.1fms)", response.latency_ms)
     return response

@@ -12,7 +12,9 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
+    llm_provider: str = "gemini"  # gemini | codex
     llm_model: str = "gpt-4o"
+    codex_workdir: str = "."
     embedding_model: str = "gemini-embedding-2"
 
     # 비교 테스트
@@ -41,6 +43,13 @@ class Settings(BaseSettings):
     max_initial_nodes: int = 20
     min_edge_threshold: float = 0.10
     binary_threshold: float = 0.45
+
+    # SQLite-backed CGI memory. Kept bounded at prompt time to avoid latency/token blow-up.
+    cgi_memory_enabled: bool = True
+    cgi_memory_db_path: str = "./data/cgi_memory.sqlite3"
+    cgi_memory_context_limit: int = 18
+    cgi_memory_recent_limit: int = 6
+    cgi_memory_similar_limit: int = 12
 
     model_config = SettingsConfigDict(
         env_file=".env",
