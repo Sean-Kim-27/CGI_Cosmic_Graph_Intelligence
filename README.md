@@ -51,6 +51,26 @@ CGI 시스템의 효용성을 증명하기 위해, **동일한 질문에 대해 
 
 ---
 
+## 📊 이전 CGI 테스트 결과 (test_result*.json)
+
+프로젝트 루트에 남아 있는 `test_result*.json` 비교 테스트 결과입니다. 각 파일은 같은 질문에 대해 일반 LLM 직접 응답(`direct_response`)과 CGI 컨텍스트 주입 응답(`cgi_response`)을 비교하고, Judge 분석(`analysis`)으로 승자를 기록합니다.
+
+| Source file | Question | Mode | Winner | Direct latency | CGI latency | CGI graph metadata |
+| --- | --- | --- | --- | --- | --- | --- |
+| `test_result.json` | 백엔드 포트폴리오 프로젝트 추천 | `creative` | `direct` | `23131.4ms` | `49663.7ms` | nodes `20`, active `5`, orbiting `15`, binary `0`, wormhole `0` |
+| `test_result_new.json` | 1인 개발 모바일 앱 수익화 아이디어 추천 | `creative` | `cgi` | `26576.6ms` | `59237.4ms` | nodes `20`, active `6`, orbiting `14`, binary `2`, wormhole `0` |
+| `test_result_deep.json` | AI 맞춤 뉴스/콘텐츠 큐레이션 앱 아키텍처 설계 | `accurate` | `cgi` | `68894.6ms` | `157514.3ms` | nodes `20`, active `10`, orbiting `10`, binary `4`, wormhole `0` |
+
+### Judge 요약
+
+- `test_result.json`: Direct 응답이 승리했습니다. Judge는 백엔드 포트폴리오 추천 목적에는 더 넓은 범위의 다양한 옵션을 직관적으로 제시한 direct 응답이 더 실용적이라고 평가했습니다.
+- `test_result_new.json`: CGI 응답이 승리했습니다. Judge는 CGI가 노드/쌍성계 프레임워크와 현대적 트렌드를 결합해 단순 아이디어 나열보다 전략적 깊이와 설명력이 높다고 평가했습니다.
+- `test_result_deep.json`: CGI 응답이 승리했습니다. Judge는 CGI가 기술적 타당성을 유지하면서도 인지 부하 감소, 세렌디피티 등 제품 관점의 창의적 AI 전략을 포함해 서비스 설계 수준의 답변을 제공했다고 평가했습니다.
+
+참고: 위 수치는 CGI 디렉터리의 JSON 파일을 직접 파싱해 반영했습니다. 파일 내부 문자열에 raw newline이 포함되어 있어 Python `json.loads(..., strict=False)`로 읽어 검증했습니다.
+
+---
+
 ## 🛠️ 설치 및 실행 방법
 
 ### 1. 환경 설정
